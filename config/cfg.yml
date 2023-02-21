@@ -1,0 +1,23 @@
+app_mode : development
+
+port: 8080
+mysql:
+  Ip : localhost
+  Port : 3306
+  DbName : qts
+  User : root
+  Password : 123456
+  mysql_charset: utf8mb4
+redis:
+  Host: 127.0.0.1
+  Port: 6379
+  DbName : 4
+  Passwd : 123456
+debug: false
+proxy: ""
+#client:
+#  client_path: https://nftstorage.link/ipfs
+
+message:
+  Message: https://dx.ipyy.net
+  MessagePath : smsjson.aspx
