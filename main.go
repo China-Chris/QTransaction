@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"github.com/adshao/go-binance/v2"
 	"github.com/gorilla/websocket"
+	"github.com/shopspring/decimal"
 	"log"
 	"strconv"
 	"strings"
@@ -56,6 +59,19 @@ func (ma *MovingAverage) Value() float64 {
 }
 
 func btc() {
+	var (
+		apiKey    = "G30kZdFVnK2zugrWmw91lZdqDWzjsiLHY7eAm10IWaV2rc5Uq6LE7eBSE2J9NKK9Copy"
+		secretKey = "OVNWYgvbVeQ6D7p1iCyQV3AvFVgolLiOacFspQikcSAl211i1JoMqTe2rt6aoqZg"
+	)
+	//创建客户端
+	client := binance.NewClient(apiKey, secretKey)
+
+	// 定义交易货币对和交易参数
+	//symbol := "BTCUSDT"
+	//tradePercent := 0.1 // 每次交易使用不超过10%的资金
+	//futuresClient := binance.NewFuturesClient(apiKey, secretKey)   // USDT-M Futures
+	//deliveryClient := binance.NewDeliveryClient(apiKey, secretKey) // Coin-M Futures
+
 	// 建立 WebSocket 连接
 	wsURL := "wss://stream.binancefuture.com/ws/btcusdt@ticker"
 	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -110,24 +126,64 @@ func btc() {
 		if maValue != 0 {
 			if price < maValue { //如果小于均值买入
 				fmt.Println("买入信号")
+				//计算买入数量
+				availableMr := account.Balance
+				quantityMr := decimal.NewFromFloat(availableMr).Div(decimal.NewFromFloat(price)).Floor()
+				//执行买入操作
+				order, err := client.NewCreateOrderService().Symbol("BTCUSDT").
+					Side(binance.SideTypeBuy).Type(binance.OrderTypeLimit).
+					TimeInForce(binance.TimeInForceTypeGTC).Quantity(quantityMr.String()).
+					Price(fmt.Sprintf("%.8f", price)).Do(context.Background())
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				fmt.Println(order)
 				// 计算可用余额
 				available := account.Balance / price //计算持仓价值
 				// 更新账户余额和持仓
 				account.Balance = 0          //余额归零
 				account.Holding += available //持仓更新
 				fmt.Printf("S value: %s,C value: %s,  ma value: %v\n", sValue, cValue, maValue)
-				fmt.Printf("账户余额: %.2f, 持仓价值: %.2f, 盈亏: %.2f\n", account.Balance, account.Holding*price, account.Balance+account.Holding*price-1000)
+				fmt.Printf("账户余额: %.2f, 持仓价值: %.2f, 盈亏: %.2f\n", account.Balance, account.Holding*price, account.Balance+account.Holding*price-10)
 
 			} else if price > maValue { //如果价格大于均值卖出
-				fmt.Println("卖出信号")
-				// 计算可用余额
-				available := account.Holding * price //计算收益价值
-				// 更新账户余额和持仓
-				account.Holding = 0          //持仓更新
-				account.Balance += available //余额更新
-				fmt.Printf("S value: %s,C value: %s,  ma value: %v\n", sValue, cValue, maValue)
-				fmt.Printf("账户余额: %.2f, 持仓价值: %.2f, 盈亏: %.2f\n", account.Balance, account.Holding*price, account.Balance+account.Holding*price-1000)
+				if account.Holding != 0 {
+					fmt.Println("卖出信号")
+					// 调用API获取账户信息
+					accountBNB, err := client.NewGetAccountService().Do(context.Background())
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					// 获取账户中持有的BTC数量
+					var holdingBtc decimal.Decimal
+					for _, b := range accountBNB.Balances {
+						if b.Asset == "BTC" {
+							holdingBtc, _ = decimal.NewFromString(b.Free)
+							break
+						}
+					}
+					quantityDec := holdingBtc.Mul(decimal.NewFromFloat(1)) //
+					quantity, _ := quantityDec.Round(6).Float64()          // 转换为float64类型，保留6位小数
 
+					order, err := client.NewCreateOrderService().Symbol("BTCUSDT").
+						Side(binance.SideTypeSell).Type(binance.OrderTypeLimit).
+						TimeInForce(binance.TimeInForceTypeGTC).Quantity(decimal.NewFromFloat(quantity).String()).
+						Price(fmt.Sprintf("%.8f", price)).Do(context.Background())
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					fmt.Println(order)
+					// 计算可用余额
+					available := account.Holding * price //计算收益价值
+					// 更新账户余额和持仓
+					account.Holding = 0          //持仓更新
+					account.Balance += available //余额更新
+					fmt.Printf("S value: %s,C value: %s,  ma value: %v\n", sValue, cValue, maValue)
+					fmt.Printf("账户余额: %.2f, 持仓价值: %.2f, 盈亏: %.2f\n", account.Balance, account.Holding*price, account.Balance+account.Holding*price-10)
+				}
 			}
 		}
 	}
